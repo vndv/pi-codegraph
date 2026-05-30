@@ -254,7 +254,7 @@ npm run version-packages
 npm run publish-packages
 ```
 
-The workflow publishes with the `NPM_TOKEN` repository secret. Use npm trusted publishing later if you want tokenless provenance publishing.
+The workflow uses npm trusted publishing through GitHub Actions OIDC.
 
 Local release commands are still available when needed:
 
@@ -263,7 +263,7 @@ npm run ci
 npm run local-release
 ```
 
-GitHub Actions needs `NPM_TOKEN` as a repository secret, or npm trusted publishing configured for `.github/workflows/publish.yml`.
+GitHub Actions needs npm trusted publishing configured for `.github/workflows/publish.yml`.
 
 ---
 
