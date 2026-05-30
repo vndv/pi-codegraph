@@ -254,6 +254,8 @@ npm run version-packages
 npm run publish-packages
 ```
 
+`publish-packages` runs `npm publish --access public`.
+
 The workflow uses npm trusted publishing through GitHub Actions OIDC.
 
 Local release commands are still available when needed:
