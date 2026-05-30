@@ -254,7 +254,7 @@ npm run version-packages
 npm run publish-packages
 ```
 
-The workflow sets `NPM_CONFIG_PROVENANCE=true`, so packages are published with npm provenance.
+The workflow publishes with the `NPM_TOKEN` repository secret. Use npm trusted publishing later if you want tokenless provenance publishing.
 
 Local release commands are still available when needed:
 
