@@ -37,7 +37,7 @@
   "scripts": {
     "ci": "npm run typecheck && npm test && npm pack --dry-run",
     "local-release": "changeset version && changeset publish",
-    "publish-packages": "changeset publish --provenance",
+    "publish-packages": "changeset publish",
     "prepack": "npm run typecheck && npm test",
     "prepublishOnly": "npm run ci",
     "typecheck": "tsc --noEmit",

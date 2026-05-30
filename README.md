@@ -254,7 +254,7 @@ npm run version-packages
 npm run publish-packages
 ```
 
-`publish-packages` uses npm provenance.
+The workflow sets `NPM_CONFIG_PROVENANCE=true`, so packages are published with npm provenance.
 
 Local release commands are still available when needed:
 
