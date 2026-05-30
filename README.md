@@ -88,6 +88,8 @@ CodeGraph must be installed and available on `PATH`:
 npm install -g @colbymchenry/codegraph
 ```
 
+This extension is tested against the `@colbymchenry/codegraph` npm package declared in `devDependencies`. Dependabot watches that package and opens update PRs when CodeGraph releases a new version.
+
 Each project must be indexed before pi can query it:
 
 ```bash
@@ -210,6 +212,8 @@ nvm use 22
 npm ci
 npm run ci
 ```
+
+`npm run ci` type-checks the extension, runs tests, verifies the pinned CodeGraph CLI can start, and dry-runs the npm package.
 
 Install the local checkout into pi:
 

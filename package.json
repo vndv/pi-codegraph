@@ -35,7 +35,8 @@
     ]
   },
   "scripts": {
-    "ci": "npm run typecheck && npm test && npm pack --dry-run",
+    "ci": "npm run typecheck && npm test && npm run compat:codegraph && npm pack --dry-run",
+    "compat:codegraph": "codegraph --version",
     "local-release": "changeset version && changeset publish",
     "publish-packages": "npm publish --access public --provenance",
     "prepack": "npm run typecheck && npm test",
@@ -56,6 +57,7 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
+    "@colbymchenry/codegraph": "^0.9.7",
     "@earendil-works/pi-coding-agent": "^0.76.0",
     "@types/node": "^20.19.30",
     "typescript": "^5.0.0",
