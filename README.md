@@ -35,7 +35,7 @@ From npm:
 pi install npm:@vndv/pi-codegraph@0.1.0
 ```
 
-This works only after `@vndv/pi-codegraph@0.1.0` has been published to npm. If npm returns `404 Not Found`, use the GitHub or local development install until the first npm publish is complete.
+The npm package is published as `@vndv/pi-codegraph`.
 
 Local development install:
 
@@ -111,18 +111,20 @@ npm run ci
 
 ## Release
 
-Run the full local package check before publishing:
+The package is published to npm as `@vndv/pi-codegraph`.
+
+Run the full local package check before releasing:
 
 ```bash
 npm run ci
 npm pack --dry-run
 ```
 
-First npm publish:
+For a manual npm release, update the version, then publish:
 
 ```bash
 npm login
-npm publish --access public
+npm publish --access public --otp <code>
 ```
 
 Future releases use Changesets:
@@ -132,7 +134,7 @@ npx changeset
 npm run local-release
 ```
 
-GitHub publishing is also supported:
+GitHub publishing is also supported by the release workflow:
 
 1. Add `NPM_TOKEN` repository secret in GitHub.
 2. Update the package version with Changesets or by editing `package.json`.
