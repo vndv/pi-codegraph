@@ -1,33 +1,52 @@
 # pi-codegraph
+### CodeGraph tools for pi
 
-Pi package that adds CodeGraph tools to Pi Agent.
+Install · Usage · How it works
 
-## Requirements
+Ask pi structural questions about your codebase without falling back to slow grep/read loops.
 
-Node.js 22 LTS is recommended. CodeGraph blocks Node.js 25 because of a V8 WASM JIT bug in tree-sitter grammar compilation.
+An extension for [pi](https://pi.dev) that gives the agent access to [CodeGraph](https://github.com/colbymchenry/codegraph) tools. CodeGraph indexes your project with tree-sitter, then pi can query symbols, callers, callees, dependency impact, files, and call paths through native extension tools.
 
-Pi provides the package extension runtime and core libraries. This package declares `@earendil-works/pi-coding-agent` and `typebox` as peer dependencies, as required by Pi package loading.
+---
 
-CodeGraph must already be installed and available on `PATH`:
+## Quick start
 
 ```bash
 npm install -g @colbymchenry/codegraph
-```
-
-Projects must be indexed before Pi can query them:
-
-```bash
 cd /path/to/project
 codegraph init -i
+pi install npm:@vndv/pi-codegraph@0.1.0
+pi
 ```
+
+Then ask:
+
+```text
+Use CodeGraph. Show project structure and main entry points.
+```
+
+---
+
+## What's included
+
+Extension tools only. There is no MCP setup for pi users to maintain.
+
+| Tool | Description |
+| --- | --- |
+| `codegraph_context` | Broad task context: entry points, related symbols, callers, callees, and key code |
+| `codegraph_search` | Symbol search by name |
+| `codegraph_node` | One symbol's signature, location, source, callers, and callees |
+| `codegraph_files` | Indexed file tree |
+| `codegraph_callers` | Functions or methods that call a symbol |
+| `codegraph_callees` | Functions or methods called by a symbol |
+| `codegraph_trace` | Static call path from one symbol to another |
+| `codegraph_impact` | Impact radius for changing a symbol |
+| `codegraph_explore` | Source for several related symbols grouped by file |
+| `codegraph_status` | Index health and pending sync status |
+
+---
 
 ## Install
-
-From GitHub:
-
-```bash
-pi install https://github.com/vndv/pi-codegraph
-```
 
 From npm:
 
@@ -35,7 +54,11 @@ From npm:
 pi install npm:@vndv/pi-codegraph@0.1.0
 ```
 
-This works only after `@vndv/pi-codegraph@0.1.0` has been published to npm. If npm returns `404 Not Found`, use the GitHub or local development install until the first npm publish is complete.
+From GitHub:
+
+```bash
+pi install https://github.com/vndv/pi-codegraph
+```
 
 Local development install:
 
@@ -45,62 +68,141 @@ cd pi-codegraph
 pi install "$(pwd)"
 ```
 
-Verify Pi sees the package:
+Then `/reload` in pi, or restart pi.
+
+Verify pi sees the package:
 
 ```bash
 pi list
 ```
 
-## Uninstall
+---
 
-Remove the package using the same source shown by `pi list`:
+## Requirements
 
-```bash
-pi remove https://github.com/vndv/pi-codegraph
-```
+Node.js 22 LTS is recommended. CodeGraph blocks Node.js 25 because that Node line has a V8 WASM JIT issue that can crash while compiling tree-sitter grammars.
 
-If you installed from npm or a local path, remove that exact entry instead:
+CodeGraph must be installed and available on `PATH`:
 
 ```bash
-pi remove npm:@vndv/pi-codegraph@0.1.0
-pi remove /path/to/pi-codegraph
+npm install -g @colbymchenry/codegraph
 ```
 
-Then start Pi inside an indexed project:
+Each project must be indexed before pi can query it:
+
+```bash
+cd /path/to/project
+codegraph init -i
+```
+
+This package declares `@earendil-works/pi-coding-agent` and `typebox` as peer dependencies because pi provides the extension runtime.
+
+---
+
+## Usage
+
+### 1. Start pi inside an indexed project
 
 ```bash
 cd /path/to/project
 pi
 ```
 
-Example prompt:
+### 2. Ask structural questions
+
+Good prompts:
 
 ```text
-Use CodeGraph. Show project structure and main entry points.
+Use CodeGraph. Explain how authentication reaches the request handler.
+Use CodeGraph. What calls PlanBoostSession?
+Use CodeGraph. What would break if I change UserRepository?
+Use CodeGraph. Show files under internal/services and important symbols.
 ```
 
-## Tools
+### 3. Prefer the right tool
 
-This package registers:
+Use `codegraph_context` for broad "how does this work?" questions.
 
-- `codegraph_search`
-- `codegraph_context`
-- `codegraph_callers`
-- `codegraph_callees`
-- `codegraph_impact`
-- `codegraph_explore`
-- `codegraph_node`
-- `codegraph_status`
-- `codegraph_files`
-- `codegraph_trace`
+Use `codegraph_node` when you already know the symbol name.
 
-Each tool proxies to:
+Use `codegraph_trace` for "how does X reach Y?" flow questions.
+
+Use `codegraph_search` for declarations and symbols, not arbitrary text or constant values.
+
+---
+
+## How it works
+
+pi extensions are not MCP configuration files. This package registers native pi tools, and each tool proxies one request to CodeGraph's MCP server internally:
 
 ```bash
 codegraph serve --mcp --path <project>
 ```
 
-For broad code questions, Pi should prefer `codegraph_context`. For known symbols, use `codegraph_node`. Use `codegraph_search` for declaration/symbol lookup, not literal constants or arbitrary text.
+The flow is:
+
+```text
+pi agent
+  -> pi-codegraph extension tool
+  -> local CodeGraph MCP process
+  -> .codegraph/codegraph.db in the current project
+  -> structured result back to pi
+```
+
+That means another developer only needs the npm package, the `codegraph` CLI, and an initialized `.codegraph` index in their project. They do not need to edit pi MCP config.
+
+---
+
+## Uninstall
+
+Remove the package using the same source shown by `pi list`:
+
+```bash
+pi remove npm:@vndv/pi-codegraph@0.1.0
+```
+
+If you installed from GitHub or a local path, remove that exact entry instead:
+
+```bash
+pi remove https://github.com/vndv/pi-codegraph
+pi remove /path/to/pi-codegraph
+```
+
+Then `/reload` in pi, or restart pi.
+
+---
+
+## Troubleshooting
+
+### `codegraph_*` tools are missing
+
+Check that pi installed the package:
+
+```bash
+pi list
+```
+
+Then reload or restart pi.
+
+### CodeGraph says the project is not initialized
+
+Run:
+
+```bash
+cd /path/to/project
+codegraph init -i
+```
+
+### Node.js version is unsupported
+
+Use Node.js 22 LTS:
+
+```bash
+nvm install 22
+nvm use 22
+```
+
+---
 
 ## Development
 
@@ -109,20 +211,36 @@ npm ci
 npm run ci
 ```
 
+Install the local checkout into pi:
+
+```bash
+pi install /Users/vndv/Documents/programming/open-source/pi-codegraph
+```
+
+Before opening a pull request:
+
+```bash
+npm run ci
+```
+
+---
+
 ## Release
 
-Run the full local package check before publishing:
+The package is published to npm as `@vndv/pi-codegraph`.
+
+Run the full local package check before releasing:
 
 ```bash
 npm run ci
 npm pack --dry-run
 ```
 
-First npm publish:
+For a manual npm release, update the version, then publish:
 
 ```bash
 npm login
-npm publish --access public
+npm publish --access public --otp <code>
 ```
 
 Future releases use Changesets:
@@ -132,11 +250,18 @@ npx changeset
 npm run local-release
 ```
 
-GitHub publishing is also supported:
+GitHub publishing is also supported by the release workflow:
 
-1. Add `NPM_TOKEN` repository secret in GitHub.
+1. Add `NPM_TOKEN` repository secret in GitHub, or configure npm trusted publishing.
 2. Update the package version with Changesets or by editing `package.json`.
-3. Commit and push to `main`.
-4. Create a GitHub release for the version tag.
+3. Open a pull request to `main`.
+4. Merge after CI passes.
+5. Create a GitHub release for the version tag.
 
 The publish workflow runs `npm publish --provenance`.
+
+---
+
+## License
+
+MIT
