@@ -229,36 +229,41 @@ npm run ci
 
 The package is published to npm as `@vndv/pi-codegraph`.
 
-Run the full local package check before releasing:
+Releases are automated with Changesets.
 
-```bash
-npm run ci
-npm pack --dry-run
-```
-
-For a manual npm release, update the version, then publish:
-
-```bash
-npm login
-npm publish --access public --otp <code>
-```
-
-Future releases use Changesets:
+For every user-facing change, add a changeset in the feature branch:
 
 ```bash
 npx changeset
+```
+
+Choose the bump type:
+
+- `patch` for fixes and docs that affect package users
+- `minor` for new tools or behavior
+- `major` for breaking changes
+
+After the PR is merged to `main`, the release workflow opens or updates a `chore: version packages` pull request. That PR contains the version bump and changelog update.
+
+Merge the version PR to publish to npm automatically.
+
+The workflow runs:
+
+```bash
+npm run version-packages
+npm run publish-packages
+```
+
+`publish-packages` uses npm provenance.
+
+Local release commands are still available when needed:
+
+```bash
+npm run ci
 npm run local-release
 ```
 
-GitHub publishing is also supported by the release workflow:
-
-1. Add `NPM_TOKEN` repository secret in GitHub, or configure npm trusted publishing.
-2. Update the package version with Changesets or by editing `package.json`.
-3. Open a pull request to `main`.
-4. Merge after CI passes.
-5. Create a GitHub release for the version tag.
-
-The publish workflow runs `npm publish --provenance`.
+GitHub Actions needs `NPM_TOKEN` as a repository secret, or npm trusted publishing configured for `.github/workflows/release.yml`.
 
 ---
 
