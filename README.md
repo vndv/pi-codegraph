@@ -15,7 +15,7 @@ An extension for [pi](https://pi.dev) that gives the agent access to [CodeGraph]
 npm install -g @colbymchenry/codegraph
 cd /path/to/project
 codegraph init -i
-pi install npm:@vndv/pi-codegraph@0.1.0
+pi install npm:@vndv/pi-codegraph@0.1.1
 pi
 ```
 
@@ -51,7 +51,7 @@ Extension tools only. There is no MCP setup for pi users to maintain.
 From npm:
 
 ```bash
-pi install npm:@vndv/pi-codegraph@0.1.0
+pi install npm:@vndv/pi-codegraph@0.1.1
 ```
 
 From GitHub:
@@ -158,7 +158,7 @@ That means another developer only needs the npm package, the `codegraph` CLI, an
 Remove the package using the same source shown by `pi list`:
 
 ```bash
-pi remove npm:@vndv/pi-codegraph@0.1.0
+pi remove npm:@vndv/pi-codegraph@0.1.1
 ```
 
 If you installed from GitHub or a local path, remove that exact entry instead:
@@ -229,7 +229,7 @@ npm run ci
 
 The package is published to npm as `@vndv/pi-codegraph`.
 
-Releases are automated with Changesets.
+Releases are automated with Changesets. Any package update, including README changes shipped to npm, needs a changeset so the release workflow can bump the version and deploy a new npm package.
 
 For every user-facing change, add a changeset in the feature branch:
 
@@ -254,7 +254,7 @@ npm run version-packages
 npm run publish-packages
 ```
 
-`publish-packages` runs `npm publish --access public`.
+`publish-packages` runs `npm publish --access public --provenance`.
 
 The workflow uses npm trusted publishing through GitHub Actions OIDC.
 
