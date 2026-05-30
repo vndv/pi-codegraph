@@ -1,0 +1,59 @@
+{
+  "name": "pi-codegraph",
+  "version": "0.1.0",
+  "description": "CodeGraph tools for Pi Agent.",
+  "license": "MIT",
+  "type": "module",
+  "author": "CodeGraph contributors",
+  "homepage": "https://github.com/vndv/pi-codegraph#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vndv/pi-codegraph.git"
+  },
+  "bugs": {
+    "url": "https://github.com/vndv/pi-codegraph/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "codegraph",
+    "coding-agent",
+    "code-intelligence"
+  ],
+  "files": [
+    "extensions",
+    "README.md",
+    "LICENSE"
+  ],
+  "exports": {
+    "./extensions/codegraph": "./extensions/codegraph.ts",
+    "./extensions/codegraph.ts": "./extensions/codegraph.ts"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions"
+    ]
+  },
+  "scripts": {
+    "ci": "npm run typecheck && npm test && npm pack --dry-run",
+    "prepack": "npm run typecheck && npm test",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "engines": {
+    "node": ">=22.19.0 <25"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.76.0",
+    "@types/node": "^20.19.30",
+    "typescript": "^5.0.0",
+    "vitest": "^2.1.9"
+  }
+}
