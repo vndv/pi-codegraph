@@ -263,7 +263,7 @@ npm run ci
 npm run local-release
 ```
 
-GitHub Actions needs `NPM_TOKEN` as a repository secret, or npm trusted publishing configured for `.github/workflows/release.yml`.
+GitHub Actions needs `NPM_TOKEN` as a repository secret, or npm trusted publishing configured for `.github/workflows/publish.yml`.
 
 ---
 
