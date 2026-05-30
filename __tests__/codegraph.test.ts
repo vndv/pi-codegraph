@@ -50,4 +50,28 @@ describe("pi-codegraph extension", () => {
 
     await expect(callCodeGraphTool("codegraph_status", {})).resolves.toBe("called codegraph_status");
   });
+
+  it("validates projectPath before starting CodeGraph", async () => {
+    const { resolveProjectCwd } = await import("../extensions/codegraph.js");
+
+    await expect(resolveProjectCwd("relative/project")).rejects.toThrow("absolute path");
+    await expect(resolveProjectCwd("/path/that/does/not/exist")).rejects.toThrow("does not exist");
+    await expect(resolveProjectCwd(new URL(import.meta.url).pathname)).rejects.toThrow("directory");
+  });
+
+  it("redacts sensitive stderr diagnostics", async () => {
+    const { sanitizeDiagnostic } = await import("../extensions/codegraph.js");
+
+    const diagnostic = sanitizeDiagnostic(
+      "\u001b[31mfailed TOKEN=abc123 Bearer secret-token --otp 123456 --api-key=hidden\u001b[0m",
+    );
+
+    expect(diagnostic).toContain("TOKEN=[redacted]");
+    expect(diagnostic).toContain("Bearer [redacted]");
+    expect(diagnostic).toContain("--[redacted]");
+    expect(diagnostic).not.toContain("abc123");
+    expect(diagnostic).not.toContain("secret-token");
+    expect(diagnostic).not.toContain("123456");
+    expect(diagnostic).not.toContain("hidden");
+  });
 });

@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { stat } from "node:fs/promises";
+import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
 import type { Static } from "typebox";
@@ -134,6 +136,8 @@ type ToolName = (typeof ToolDefinitions)[number]["name"];
 type ToolParams = Record<string, unknown> & { projectPath?: string };
 type JsonRpcRequest = (method: string, params: Record<string, unknown>) => Promise<any>;
 
+const MaxDiagnosticLength = 1000;
+
 export const codegraphToolNames = ToolDefinitions.map((tool) => tool.name);
 
 export async function withCodeGraphMcp<T>(
@@ -141,7 +145,7 @@ export async function withCodeGraphMcp<T>(
   signal: AbortSignal | undefined,
   fn: (request: JsonRpcRequest) => Promise<T>,
 ): Promise<T> {
-  const cwd = projectPath || process.cwd();
+  const cwd = await resolveProjectCwd(projectPath);
   const child = spawn("codegraph", ["serve", "--mcp", "--path", cwd], {
     cwd,
     env: process.env,
@@ -149,6 +153,39 @@ export async function withCodeGraphMcp<T>(
   });
 
   return runJsonRpcSession(child, cwd, signal, fn);
+}
+
+export async function resolveProjectCwd(projectPath: string | undefined): Promise<string> {
+  const cwd = projectPath || process.cwd();
+
+  if (!path.isAbsolute(cwd)) {
+    throw new Error("CodeGraph projectPath must be an absolute path.");
+  }
+
+  let info;
+  try {
+    info = await stat(cwd);
+  } catch {
+    throw new Error("CodeGraph projectPath does not exist or is not accessible.");
+  }
+
+  if (!info.isDirectory()) {
+    throw new Error("CodeGraph projectPath must point to a directory.");
+  }
+
+  return cwd;
+}
+
+export function sanitizeDiagnostic(value: string): string {
+  const withoutAnsi = value.replace(/\u001b\[[0-9;]*m/g, "");
+  const redacted = withoutAnsi
+    .replace(/\b([A-Z0-9_]*(?:TOKEN|SECRET|PASSWORD|API_KEY|APIKEY|AUTH)[A-Z0-9_]*=)\S+/gi, "$1[redacted]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer [redacted]")
+    .replace(/--(?:token|secret|password|api-key|apikey|otp)(?:=|\s+)\S+/gi, "--[redacted]");
+
+  return redacted.length > MaxDiagnosticLength
+    ? `${redacted.slice(0, MaxDiagnosticLength)}...`
+    : redacted;
 }
 
 async function runJsonRpcSession<T>(
@@ -211,7 +248,8 @@ async function runJsonRpcSession<T>(
 
   child.on("exit", (code) => {
     if (pending.size === 0) return;
-    const msg = stderr.trim() || `CodeGraph MCP process exited with code ${code}`;
+    const diagnostic = sanitizeDiagnostic(stderr.trim());
+    const msg = diagnostic || `CodeGraph MCP process exited with code ${code}`;
     for (const entry of pending.values()) entry.reject(new Error(msg));
     pending.clear();
   });
