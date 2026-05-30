@@ -38,13 +38,30 @@ pi install npm:pi-codegraph@0.1.0
 Local development install:
 
 ```bash
-pi install /Users/vndv/Documents/programming/open-source/pi-codegraph
+git clone https://github.com/vndv/pi-codegraph.git
+cd pi-codegraph
+pi install "$(pwd)"
 ```
 
 Verify Pi sees the package:
 
 ```bash
 pi list
+```
+
+## Uninstall
+
+Remove the package using the same source shown by `pi list`:
+
+```bash
+pi remove https://github.com/vndv/pi-codegraph
+```
+
+If you installed from npm or a local path, remove that exact entry instead:
+
+```bash
+pi remove npm:pi-codegraph@0.1.0
+pi remove /path/to/pi-codegraph
 ```
 
 Then start Pi inside an indexed project:
