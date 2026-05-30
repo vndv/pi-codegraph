@@ -35,6 +35,8 @@ From npm:
 pi install npm:pi-codegraph@0.1.0
 ```
 
+This works only after `pi-codegraph@0.1.0` has been published to npm. If npm returns `404 Not Found`, use the GitHub or local development install until the first npm publish is complete.
+
 Local development install:
 
 ```bash
@@ -109,16 +111,32 @@ npm run ci
 
 ## Release
 
-1. Update `version` in `package.json`.
-2. Commit changes and push to `main`.
-3. Create GitHub repo `vndv/pi-codegraph` and push:
+Run the full local package check before publishing:
 
 ```bash
-git remote add origin git@github.com:vndv/pi-codegraph.git
-git push -u origin main
+npm run ci
+npm pack --dry-run
 ```
 
-4. Add `NPM_TOKEN` repository secret in GitHub.
-5. Create GitHub release for the version tag.
+First npm publish:
+
+```bash
+npm login
+npm publish --access public
+```
+
+Future releases use Changesets:
+
+```bash
+npx changeset
+npm run local-release
+```
+
+GitHub publishing is also supported:
+
+1. Add `NPM_TOKEN` repository secret in GitHub.
+2. Update the package version with Changesets or by editing `package.json`.
+3. Commit and push to `main`.
+4. Create a GitHub release for the version tag.
 
 The publish workflow runs `npm publish --provenance`.
