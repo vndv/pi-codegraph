@@ -1,5 +1,11 @@
 # @vndv/pi-codegraph
 
+## 0.1.3
+
+### Patch Changes
+
+- c72e6ab: Add CodeGraph compatibility tracking and Dependabot configuration.
+
 ## 0.1.2
 
 ### Patch Changes
