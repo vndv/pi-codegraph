@@ -1,5 +1,5 @@
 {
-  "name": "pi-codegraph",
+  "name": "@vndv/pi-codegraph",
   "version": "0.1.0",
   "description": "CodeGraph tools for Pi Agent.",
   "license": "MIT",

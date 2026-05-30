@@ -32,10 +32,10 @@ pi install https://github.com/vndv/pi-codegraph
 From npm:
 
 ```bash
-pi install npm:pi-codegraph@0.1.0
+pi install npm:@vndv/pi-codegraph@0.1.0
 ```
 
-This works only after `pi-codegraph@0.1.0` has been published to npm. If npm returns `404 Not Found`, use the GitHub or local development install until the first npm publish is complete.
+This works only after `@vndv/pi-codegraph@0.1.0` has been published to npm. If npm returns `404 Not Found`, use the GitHub or local development install until the first npm publish is complete.
 
 Local development install:
 
@@ -62,7 +62,7 @@ pi remove https://github.com/vndv/pi-codegraph
 If you installed from npm or a local path, remove that exact entry instead:
 
 ```bash
-pi remove npm:pi-codegraph@0.1.0
+pi remove npm:@vndv/pi-codegraph@0.1.0
 pi remove /path/to/pi-codegraph
 ```
 
