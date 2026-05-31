@@ -17,7 +17,7 @@ An extension for [pi](https://pi.dev) that gives the agent access to [CodeGraph]
 npm install -g @colbymchenry/codegraph
 cd /path/to/project
 codegraph init -i
-pi install npm:@vndv/pi-codegraph@0.1.5
+pi install npm:@vndv/pi-codegraph@0.1.6
 pi
 ```
 
@@ -53,7 +53,7 @@ Extension tools only. There is no MCP setup for pi users to maintain.
 From npm:
 
 ```bash
-pi install npm:@vndv/pi-codegraph@0.1.5
+pi install npm:@vndv/pi-codegraph@0.1.6
 ```
 
 From GitHub:
@@ -162,7 +162,7 @@ That means another developer only needs the npm package, the `codegraph` CLI, an
 Remove the package using the same source shown by `pi list`:
 
 ```bash
-pi remove npm:@vndv/pi-codegraph@0.1.5
+pi remove npm:@vndv/pi-codegraph@0.1.6
 ```
 
 If you installed from GitHub or a local path, remove that exact entry instead:

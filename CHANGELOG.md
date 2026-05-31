@@ -1,5 +1,11 @@
 # @vndv/pi-codegraph
 
+## 0.1.6
+
+### Patch Changes
+
+- 5f13a98: Add an automatically updated Skylos grade badge to the README.
+
 ## 0.1.5
 
 ### Patch Changes
