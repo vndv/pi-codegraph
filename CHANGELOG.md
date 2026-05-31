@@ -1,5 +1,11 @@
 # @vndv/pi-codegraph
 
+## 0.1.4
+
+### Patch Changes
+
+- 1e5479b: Harden CI and release workflows, add Skylos policy files, and split JSON-RPC session helpers.
+
 ## 0.1.3
 
 ### Patch Changes
