@@ -35,7 +35,8 @@
     ]
   },
   "scripts": {
-    "ci": "npm run typecheck && npm test && npm run compat:codegraph && npm pack --dry-run",
+    "check:readme-version": "node scripts/sync-readme-version.mjs --check",
+    "ci": "npm run typecheck && npm test && npm run compat:codegraph && npm run check:readme-version && npm pack --dry-run",
     "compat:codegraph": "codegraph --version",
     "local-release": "changeset version && changeset publish",
     "publish-packages": "node -e \"const {execSync}=require('node:child_process'); const p=require('./package.json'); const spec=p.name+'@'+p.version; try { execSync('npm view '+spec+' version', {stdio:'ignore'}); console.log(spec+' already published; skipping.'); } catch { execSync('npm publish --access public --provenance --ignore-scripts', {stdio:'inherit'}); }\"",
@@ -43,7 +44,8 @@
     "prepublishOnly": "npm run ci",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "version-packages": "changeset version && npm install --package-lock-only --ignore-scripts"
+    "sync:readme-version": "node scripts/sync-readme-version.mjs",
+    "version-packages": "changeset version && npm run sync:readme-version && npm install --package-lock-only --ignore-scripts"
   },
   "engines": {
     "node": ">=22.19.0 <25"
