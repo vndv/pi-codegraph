@@ -34,6 +34,7 @@ jobs:
     timeout-minutes: 20
     needs: verify
     permissions:
+      actions: write
       contents: write
       pull-requests: write
       id-token: write
@@ -53,6 +54,7 @@ jobs:
       - run: npm ci --ignore-scripts
 
       - name: Create version PR or publish
+        id: changesets
         uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b
         with:
           version: npm run version-packages
@@ -61,3 +63,9 @@ jobs:
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trigger CI for version PR
+        if: steps.changesets.outputs.hasChangesets == 'true'
+        run: gh workflow run ci.yml --ref changeset-release/main
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
