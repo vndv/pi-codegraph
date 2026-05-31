@@ -135,6 +135,10 @@ const ToolDefinitions = [
 type ToolName = (typeof ToolDefinitions)[number]["name"];
 type ToolParams = Record<string, unknown> & { projectPath?: string };
 type JsonRpcRequest = (method: string, params: Record<string, unknown>) => Promise<any>;
+type PendingJsonRpcRequests = Map<number, {
+  resolve: (value: any) => void;
+  reject: (error: Error) => void;
+}>;
 
 const MaxDiagnosticLength = 1000;
 
@@ -194,67 +198,106 @@ async function runJsonRpcSession<T>(
   signal: AbortSignal | undefined,
   fn: (request: JsonRpcRequest) => Promise<T>,
 ): Promise<T> {
-  let nextId = 1;
-  let stdout = "";
-  let stderr = "";
-  const pending = new Map<number, {
-    resolve: (value: any) => void;
-    reject: (error: Error) => void;
-  }>();
-
-  const cleanup = () => {
-    for (const entry of pending.values()) {
-      entry.reject(new Error("CodeGraph MCP process closed before responding."));
-    }
-    pending.clear();
-    if (!child.killed) child.kill();
-  };
-
+  const pending: PendingJsonRpcRequests = new Map();
+  const stderr = { value: "" };
+  const cleanup = () => cleanupJsonRpcChild(child, pending);
   const onAbort = () => cleanup();
+
   signal?.addEventListener("abort", onAbort, { once: true });
+  attachJsonRpcHandlers(child, pending, stderr);
+
+  try {
+    const sendRequest = createJsonRpcRequestSender(child, pending);
+    await initializeJsonRpcSession(cwd, sendRequest, sendJsonRpcNotification.bind(undefined, child));
+    return await fn(sendRequest);
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+    cleanup();
+  }
+}
+
+function cleanupJsonRpcChild(
+  child: ChildProcessWithoutNullStreams,
+  pending: PendingJsonRpcRequests,
+): void {
+  rejectPendingJsonRpcRequests(
+    pending,
+    new Error("CodeGraph MCP process closed before responding."),
+  );
+  if (!child.killed) child.kill();
+}
+
+function rejectPendingJsonRpcRequests(
+  pending: PendingJsonRpcRequests,
+  error: Error,
+): void {
+  for (const entry of pending.values()) entry.reject(error);
+  pending.clear();
+}
+
+function attachJsonRpcHandlers(
+  child: ChildProcessWithoutNullStreams,
+  pending: PendingJsonRpcRequests,
+  stderr: { value: string },
+): void {
+  const stdout = { value: "" };
 
   child.stdout.on("data", (chunk) => {
-    stdout += chunk.toString("utf-8");
-    let newline;
-    while ((newline = stdout.indexOf("\n")) !== -1) {
-      const line = stdout.slice(0, newline).trim();
-      stdout = stdout.slice(newline + 1);
-      if (!line) continue;
-
-      let msg: any;
-      try {
-        msg = JSON.parse(line);
-      } catch {
-        continue;
-      }
-
-      if (msg.id !== undefined && pending.has(msg.id)) {
-        const { resolve, reject } = pending.get(msg.id)!;
-        pending.delete(msg.id);
-        if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
-        else resolve(msg.result);
-      }
-    }
+    handleJsonRpcStdout(chunk, stdout, pending);
   });
-
   child.stderr.on("data", (chunk) => {
-    stderr += chunk.toString("utf-8");
+    stderr.value += chunk.toString("utf-8");
   });
+  child.on("error", (err) => rejectPendingJsonRpcRequests(pending, err));
+  child.on("exit", (code) => rejectPendingJsonRpcOnExit(pending, stderr.value, code));
+}
 
-  child.on("error", (err) => {
-    for (const entry of pending.values()) entry.reject(err);
-    pending.clear();
-  });
+function handleJsonRpcStdout(
+  chunk: Buffer,
+  stdout: { value: string },
+  pending: PendingJsonRpcRequests,
+): void {
+  stdout.value += chunk.toString("utf-8");
+  let newline;
+  while ((newline = stdout.value.indexOf("\n")) !== -1) {
+    const line = stdout.value.slice(0, newline).trim();
+    stdout.value = stdout.value.slice(newline + 1);
+    if (line) resolveJsonRpcLine(line, pending);
+  }
+}
 
-  child.on("exit", (code) => {
-    if (pending.size === 0) return;
-    const diagnostic = sanitizeDiagnostic(stderr.trim());
-    const msg = diagnostic || `CodeGraph MCP process exited with code ${code}`;
-    for (const entry of pending.values()) entry.reject(new Error(msg));
-    pending.clear();
-  });
+function resolveJsonRpcLine(line: string, pending: PendingJsonRpcRequests): void {
+  let msg: any;
+  try {
+    msg = JSON.parse(line);
+  } catch {
+    return;
+  }
 
-  const sendRequest: JsonRpcRequest = (method, params) => {
+  if (msg.id === undefined || !pending.has(msg.id)) return;
+  const { resolve, reject } = pending.get(msg.id)!;
+  pending.delete(msg.id);
+  if (msg.error) reject(new Error(msg.error.message || JSON.stringify(msg.error)));
+  else resolve(msg.result);
+}
+
+function rejectPendingJsonRpcOnExit(
+  pending: PendingJsonRpcRequests,
+  stderr: string,
+  code: number | null,
+): void {
+  if (pending.size === 0) return;
+  const diagnostic = sanitizeDiagnostic(stderr.trim());
+  const msg = diagnostic || `CodeGraph MCP process exited with code ${code}`;
+  rejectPendingJsonRpcRequests(pending, new Error(msg));
+}
+
+function createJsonRpcRequestSender(
+  child: ChildProcessWithoutNullStreams,
+  pending: PendingJsonRpcRequests,
+): JsonRpcRequest {
+  let nextId = 1;
+  return (method, params) => {
     const id = nextId++;
     const payload = { jsonrpc: "2.0", id, method, params };
     const promise = new Promise<any>((resolve, reject) => {
@@ -263,26 +306,30 @@ async function runJsonRpcSession<T>(
     child.stdin.write(`${JSON.stringify(payload)}\n`);
     return promise;
   };
+}
 
-  const sendNotification = (method: string, params: Record<string, unknown>) => {
-    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
-  };
+function sendJsonRpcNotification(
+  child: ChildProcessWithoutNullStreams,
+  method: string,
+  params: Record<string, unknown>,
+): void {
+  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
+}
 
-  try {
-    const rootUri = pathToFileURL(cwd).href;
-    await sendRequest("initialize", {
-      protocolVersion: "2024-11-05",
-      rootUri,
-      workspaceFolders: [{ uri: rootUri, name: cwd.split(/[\\/]/).pop() || cwd }],
-      capabilities: {},
-      clientInfo: { name: "pi-codegraph", version: "0.1.0" },
-    });
-    sendNotification("initialized", {});
-    return await fn(sendRequest);
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
-    cleanup();
-  }
+async function initializeJsonRpcSession(
+  cwd: string,
+  sendRequest: JsonRpcRequest,
+  sendNotification: (method: string, params: Record<string, unknown>) => void,
+): Promise<void> {
+  const rootUri = pathToFileURL(cwd).href;
+  await sendRequest("initialize", {
+    protocolVersion: "2024-11-05",
+    rootUri,
+    workspaceFolders: [{ uri: rootUri, name: cwd.split(/[\\/]/).pop() || cwd }],
+    capabilities: {},
+    clientInfo: { name: "pi-codegraph", version: "0.1.0" },
+  });
+  sendNotification("initialized", {});
 }
 
 export async function callCodeGraphTool(

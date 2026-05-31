@@ -7,31 +7,53 @@ on:
 concurrency: release
 
 permissions:
-  contents: write
-  pull-requests: write
-  id-token: write
+  contents: read
 
 jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: node --version && npm --version
+      - run: npm ci --ignore-scripts
+      - run: npm run ci
+
   release:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: verify
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           cache: npm
 
-      - run: npm install -g npm@latest
       - run: node --version && npm --version
-      - run: npm ci
-      - run: npm run ci
+      - run: npm ci --ignore-scripts
 
       - name: Create version PR or publish
-        uses: changesets/action@v1
+        uses: changesets/action@63a615b9cd06ba9a3e6d13796c7fbcb080a60a0b
         with:
           version: npm run version-packages
           publish: npm run publish-packages
