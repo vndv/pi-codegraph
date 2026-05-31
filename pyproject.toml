@@ -4,6 +4,7 @@ nesting = 3
 max_args = 5
 max_lines = 50
 ignore = []
+exclude = ["package-lock.json"]
 
 [tool.skylos.languages.typescript]
 complexity = 15
