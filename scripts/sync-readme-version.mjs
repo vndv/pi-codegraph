@@ -1,6 +1,5 @@
 import { readFile, writeFile } from 'node:fs/promises';
 
-const checkOnly = process.argv.includes('--check');
 const packageJson = JSON.parse(await readFile(new URL('../package.json', import.meta.url), 'utf8'));
 const readmeUrl = new URL('../README.md', import.meta.url);
 const readme = await readFile(readmeUrl, 'utf8');
@@ -15,7 +14,7 @@ if (updated === readme) {
   process.exit(0);
 }
 
-if (checkOnly) {
+if (process.argv.includes('--check')) {
   console.error(`README package version is stale. Run npm run sync:readme-version.`);
   process.exit(1);
 }
