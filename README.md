@@ -1,6 +1,8 @@
 # pi-codegraph
 ### CodeGraph tools for pi
 
+[![Skylos Grade](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/vndv/pi-codegraph/main/.github/badges/skylos.json)](https://github.com/duriantaco/skylos)
+
 [Install](#install) · [Usage](#usage) · [How it works](#how-it-works)
 
 Ask pi structural questions about your codebase without falling back to slow grep/read loops.

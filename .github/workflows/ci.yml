@@ -26,4 +26,33 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run ci
       - run: pip install skylos
+      - run: skylos . -a --format json --output skylos-results.json
       - run: skylos . --gate
+      - run: node scripts/update-skylos-badge.mjs skylos-results.json
+
+  skylos-badge:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - run: pip install skylos
+      - run: skylos . -a --format json --output skylos-results.json
+      - run: node scripts/update-skylos-badge.mjs skylos-results.json
+      - run: |
+          if git diff --quiet -- .github/badges/skylos.json; then
+            echo "Skylos badge already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add .github/badges/skylos.json
+          git commit -m "docs: update Skylos badge"
+          git push
