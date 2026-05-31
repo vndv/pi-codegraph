@@ -2,6 +2,7 @@
 ### CodeGraph tools for pi
 
 [![Skylos Grade](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/vndv/pi-codegraph/main/.github/badges/skylos.json)](https://github.com/duriantaco/skylos)
+[![npm downloads](https://img.shields.io/npm/dm/%40vndv%2Fpi-codegraph)](https://www.npmjs.com/package/@vndv/pi-codegraph)
 
 [Install](#install) · [Usage](#usage) · [How it works](#how-it-works)
 
