@@ -1,6 +1,6 @@
 {
   "name": "@vndv/pi-codegraph",
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "CodeGraph tools for Pi Agent.",
   "license": "MIT",
   "type": "module",
@@ -48,7 +48,7 @@
     "version-packages": "changeset version && npm run sync:readme-version && npm install --package-lock-only --ignore-scripts"
   },
   "engines": {
-    "node": ">=22.19.0 <25"
+    "node": ">=22.19.0"
   },
   "publishConfig": {
     "access": "public"

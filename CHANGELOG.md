@@ -1,5 +1,11 @@
 # @vndv/pi-codegraph
 
+## 0.1.7
+
+### Patch Changes
+
+- Allow installation on Node.js versions newer than 22.19.0.
+
 ## 0.1.6
 
 ### Patch Changes
