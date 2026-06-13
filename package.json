@@ -59,8 +59,8 @@
   },
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
-    "@colbymchenry/codegraph": "^0.9.7",
-    "@earendil-works/pi-coding-agent": "^0.78.0",
+    "@colbymchenry/codegraph": "^1.0.0",
+    "@earendil-works/pi-coding-agent": "^0.79.3",
     "@types/node": "^25.9.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7"
