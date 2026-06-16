@@ -180,6 +180,41 @@ export async function resolveProjectCwd(projectPath: string | undefined): Promis
   return cwd;
 }
 
+const EMPTY_FILES_RESULT = "No files found matching the criteria.";
+
+export function expandHome(input: string): string {
+  if (input === "~") return process.env.HOME ?? input;
+  if (input.startsWith("~/")) return path.join(process.env.HOME ?? "", input.slice(2));
+  return input;
+}
+
+// CodeGraph's `codegraph_files` `path` is a prefix anchored at the project root over
+// repo-relative POSIX paths. It does not understand `~` or absolute paths and returns a
+// silent, non-error empty result for them. Translate the common shapes agents produce.
+export function normalizeFilesPath(value: unknown, projectRoot: string): string | undefined {
+  if (typeof value !== "string" || value.trim() === "") return undefined;
+
+  const raw = expandHome(value.trim());
+  if (!path.isAbsolute(raw)) return raw; // already relative; let CodeGraph match it
+
+  const resolved = path.resolve(projectRoot, raw);
+  if (resolved === projectRoot) return undefined; // whole project -> drop the filter
+
+  const relative = path.relative(projectRoot, resolved);
+  if (relative && !relative.startsWith("..") && !path.isAbsolute(relative)) {
+    return relative.split(path.sep).join("/");
+  }
+
+  return raw; // outside the project; leave it for CodeGraph to answer
+}
+
+// An empty `path` filter result is a bare, non-error "No files found" string, which leads
+// agents to conclude a directory does not exist. Append a deterministic, self-correcting hint.
+export function annotateFilesResult(pathFilter: string | undefined, text: string): string {
+  if (!pathFilter || !text.includes(EMPTY_FILES_RESULT)) return text;
+  return `${text}\nNote: \`path\` is a prefix anchored at the project root (e.g. "src/components"), not a directory-name or filename search. Call codegraph_files without \`path\` to list the tree, then re-filter with the correct prefix.`;
+}
+
 export function sanitizeDiagnostic(value: string): string {
   const withoutAnsi = value.replace(/\u001b\[[0-9;]*m/g, "");
   const redacted = withoutAnsi
@@ -338,10 +373,11 @@ export async function callCodeGraphTool(
   signal?: AbortSignal,
 ): Promise<string> {
   const projectPath = typeof params.projectPath === "string" ? params.projectPath : undefined;
+  const args = await prepareToolArguments(name, params || {}, projectPath);
   const result = await withCodeGraphMcp(projectPath, signal, (request) =>
     request("tools/call", {
       name,
-      arguments: params || {},
+      arguments: args,
     })
   );
 
@@ -351,7 +387,30 @@ export async function callCodeGraphTool(
     .join("\n");
 
   if (result?.isError) throw new Error(text || "CodeGraph tool failed.");
+
+  if (name === "codegraph_files") {
+    const filter = typeof args.path === "string" ? args.path : undefined;
+    return annotateFilesResult(filter, text) || JSON.stringify(result);
+  }
+
   return text || JSON.stringify(result);
+}
+
+async function prepareToolArguments(
+  name: ToolName,
+  params: ToolParams,
+  projectPath: string | undefined,
+): Promise<ToolParams> {
+  if (name !== "codegraph_files" || typeof params.path !== "string" || params.path.trim() === "") {
+    return params;
+  }
+
+  const projectRoot = await resolveProjectCwd(projectPath);
+  const normalized = normalizeFilesPath(params.path, projectRoot);
+  const next: ToolParams = { ...params };
+  if (normalized === undefined) delete next.path;
+  else next.path = normalized;
+  return next;
 }
 
 export default function codegraphExtension(pi: ExtensionAPI): void {

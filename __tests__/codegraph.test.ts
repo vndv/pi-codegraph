@@ -59,6 +59,40 @@ describe("pi-codegraph extension", () => {
     await expect(resolveProjectCwd(new URL(import.meta.url).pathname)).rejects.toThrow("directory");
   });
 
+  it("normalizes codegraph_files path filters to repo-relative prefixes", async () => {
+    const { normalizeFilesPath, expandHome } = await import("../extensions/codegraph.js");
+    const root = "/repo";
+
+    // absolute path inside the project -> repo-relative POSIX prefix
+    expect(normalizeFilesPath("/repo/src/components", root)).toBe("src/components");
+    // the project root itself -> filter dropped
+    expect(normalizeFilesPath("/repo", root)).toBeUndefined();
+    // already-relative input passes through unchanged (CodeGraph matches it)
+    expect(normalizeFilesPath("src/components", root)).toBe("src/components");
+    expect(normalizeFilesPath("components", root)).toBe("components");
+    // empty/whitespace -> no filter
+    expect(normalizeFilesPath("   ", root)).toBeUndefined();
+    expect(normalizeFilesPath(undefined, root)).toBeUndefined();
+    // ~ expansion
+    expect(expandHome("~/x")).toContain("/x");
+    // absolute path outside the project is left untouched
+    expect(normalizeFilesPath("/elsewhere/src", root)).toBe("/elsewhere/src");
+  });
+
+  it("annotates empty codegraph_files results with a self-correcting hint", async () => {
+    const { annotateFilesResult } = await import("../extensions/codegraph.js");
+    const empty = "No files found matching the criteria.";
+
+    const hinted = annotateFilesResult("components", empty);
+    expect(hinted).toContain("prefix anchored at the project root");
+    // a non-empty result is never altered
+    expect(annotateFilesResult("src", "## Project Structure (2 files)")).toBe(
+      "## Project Structure (2 files)",
+    );
+    // no path filter -> no hint even when empty
+    expect(annotateFilesResult(undefined, empty)).toBe(empty);
+  });
+
   it("redacts sensitive stderr diagnostics", async () => {
     const { sanitizeDiagnostic } = await import("../extensions/codegraph.js");
 
