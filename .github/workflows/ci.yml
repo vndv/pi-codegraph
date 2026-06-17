@@ -37,6 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -47,13 +48,29 @@ jobs:
       - run: pip install skylos
       - run: skylos . -a --format json --output skylos-results.json
       - run: node scripts/update-skylos-badge.mjs skylos-results.json
-      - run: |
+      - name: Create or update PR for Skylos badge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
           if git diff --quiet -- .github/badges/skylos.json; then
             echo "Skylos badge already up to date."
             exit 0
           fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          BRANCH="chore/update-skylos-badge-$(date +%s)"
+          git checkout -b "$BRANCH"
           git add .github/badges/skylos.json
           git commit -m "docs: update Skylos badge"
-          git push
+          git push origin "$BRANCH"
+
+          gh pr create \
+            --title "docs: update Skylos badge" \
+            --body "Automated Skylos badge update." \
+            --base main \
+            --head "$BRANCH" \
+            --label "docs,automated" || true
+
+          echo "Opened PR for Skylos badge update from branch $BRANCH"
