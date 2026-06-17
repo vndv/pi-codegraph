@@ -36,7 +36,7 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10
         with:
@@ -50,10 +50,7 @@ jobs:
       - run: |
           if git diff --quiet -- .github/badges/skylos.json; then
             echo "Skylos badge already up to date."
-            exit 0
+          else
+            echo "Skylos badge changed. Open a pull request to update .github/badges/skylos.json"
+            git diff -- .github/badges/skylos.json
           fi
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add .github/badges/skylos.json
-          git commit -m "docs: update Skylos badge"
-          git push
