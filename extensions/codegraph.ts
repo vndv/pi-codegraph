@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { stat } from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { ChildProcessWithoutNullStreams } from "node:child_process";
@@ -31,17 +32,6 @@ const ToolDefinitions = [
       query: Type.String({ description: "Symbol name or partial name." }),
       kind: ToolKind,
       limit: Type.Optional(Type.Number({ default: 10 })),
-      projectPath: OptionalProjectPath,
-    }),
-  },
-  {
-    name: "codegraph_context",
-    label: "CodeGraph Context",
-    description: "Primary tool for architecture, feature, bug-context, or how-does-X-work questions.",
-    parameters: Type.Object({
-      task: Type.String({ description: "Task, question, or code area to understand." }),
-      maxNodes: Type.Optional(Type.Number({ default: 20 })),
-      includeCode: Type.Optional(Type.Boolean({ default: true })),
       projectPath: OptionalProjectPath,
     }),
   },
@@ -120,16 +110,6 @@ const ToolDefinitions = [
       projectPath: OptionalProjectPath,
     }),
   },
-  {
-    name: "codegraph_trace",
-    label: "CodeGraph Trace",
-    description: "Trace the call path between two symbols.",
-    parameters: Type.Object({
-      from: Type.String(),
-      to: Type.String(),
-      projectPath: OptionalProjectPath,
-    }),
-  },
 ] as const;
 
 type ToolName = (typeof ToolDefinitions)[number]["name"];
@@ -178,6 +158,34 @@ export async function resolveProjectCwd(projectPath: string | undefined): Promis
   }
 
   return cwd;
+}
+
+export function normalizeFilesPath(inputPath?: string, projectCwd?: string): string | undefined {
+  if (typeof inputPath !== "string" || inputPath.trim() === "") return undefined;
+
+  const trimmed = inputPath.trim();
+  let expanded = trimmed;
+  if (expanded === "~" || expanded.startsWith("~/") || expanded.startsWith("~\\")) {
+    expanded = path.join(os.homedir(), expanded.slice(1));
+  }
+
+  if (projectCwd && path.isAbsolute(expanded)) {
+    const relative = path.relative(projectCwd, expanded);
+    if (relative === "") return undefined;
+    if (!relative.startsWith("..") && !path.isAbsolute(relative)) {
+      return relative.split(path.sep).join("/");
+    }
+  }
+
+  return trimmed.split(path.sep).join("/");
+}
+
+const EmptyFilesMarker = "No files found matching the criteria.";
+
+export function annotateFilesResult(resultText: string, originalPath?: string): string {
+  if (!originalPath || !resultText.includes(EmptyFilesMarker)) return resultText;
+
+  return `${resultText}\n\nHint: codegraph_files interprets "path" as a root-relative POSIX prefix (e.g. "src/components"). The filter "${originalPath}" did not match any indexed path.`;
 }
 
 export function sanitizeDiagnostic(value: string): string {
@@ -332,17 +340,42 @@ async function initializeJsonRpcSession(
   sendNotification("initialized", {});
 }
 
+async function prepareToolArguments(
+  name: ToolName,
+  params: ToolParams,
+): Promise<{ args: ToolParams; originalFilesPath?: string }> {
+  if (name !== "codegraph_files") return { args: params };
+
+  const projectPath = typeof params.projectPath === "string" ? params.projectPath : undefined;
+  const projectCwd = await resolveProjectCwd(projectPath);
+  const originalFilesPath = typeof params.path === "string" ? params.path : undefined;
+  const normalizedPath = normalizeFilesPath(originalFilesPath, projectCwd);
+
+  const args: ToolParams = { ...params };
+  if (normalizedPath === undefined) {
+    delete args.path;
+  } else {
+    args.path = normalizedPath;
+  }
+
+  return { args, originalFilesPath };
+}
+
 export async function callCodeGraphTool(
   name: ToolName,
   params: ToolParams,
   signal?: AbortSignal,
 ): Promise<string> {
-  const projectPath = typeof params.projectPath === "string" ? params.projectPath : undefined;
-  const result = await withCodeGraphMcp(projectPath, signal, (request) =>
-    request("tools/call", {
-      name,
-      arguments: params || {},
-    })
+  const { args, originalFilesPath } = await prepareToolArguments(name, params);
+
+  const result = await withCodeGraphMcp(
+    typeof args.projectPath === "string" ? args.projectPath : undefined,
+    signal,
+    (request) =>
+      request("tools/call", {
+        name,
+        arguments: args,
+      }),
   );
 
   const text = (result?.content || [])
@@ -351,7 +384,8 @@ export async function callCodeGraphTool(
     .join("\n");
 
   if (result?.isError) throw new Error(text || "CodeGraph tool failed.");
-  return text || JSON.stringify(result);
+  const finalText = text || JSON.stringify(result);
+  return name === "codegraph_files" ? annotateFilesResult(finalText, originalFilesPath) : finalText;
 }
 
 export default function codegraphExtension(pi: ExtensionAPI): void {
@@ -359,8 +393,8 @@ export default function codegraphExtension(pi: ExtensionAPI): void {
     const guidance = [
       "CodeGraph tools are available as codegraph_* Pi tools.",
       "For architecture, flow, where-is-symbol, impact, and codebase navigation questions, use CodeGraph tools directly before grep/read.",
-      "Use codegraph_context first for broad questions, codegraph_search for symbol-name lookup, codegraph_files for project structure, codegraph_node for a known symbol, and codegraph_trace for call paths.",
-      "If codegraph_search returns no exact result, try codegraph_context or codegraph_files/codegraph_explore before falling back to grep/read; CodeGraph symbol search may miss literal constants or generated names that still exist in source text.",
+      "Use codegraph_explore first for broad questions, codegraph_search for symbol-name lookup, codegraph_files for project structure, codegraph_node for a known symbol, and codegraph_callers for impact/flow analysis.",
+      "If codegraph_search returns no exact result, try codegraph_explore or codegraph_files/codegraph_node before falling back to grep/read; CodeGraph symbol search may miss literal constants or generated names that still exist in source text.",
       "Only use grep/read after CodeGraph is insufficient or when the user asks for literal text matching.",
     ].join("\n");
 

@@ -8,7 +8,7 @@
 
 Ask pi structural questions about your codebase without falling back to slow grep/read loops.
 
-An extension for [pi](https://pi.dev) that gives the agent access to [CodeGraph](https://github.com/colbymchenry/codegraph) tools. CodeGraph indexes your project with tree-sitter, then pi can query symbols, callers, callees, dependency impact, files, and call paths through native extension tools.
+An extension for [pi](https://pi.dev) that gives the agent access to [CodeGraph](https://github.com/colbymchenry/codegraph) tools. CodeGraph indexes your project with tree-sitter, then pi can query symbols, callers, callees, dependency impact, files, and relationships through native extension tools.
 
 ---
 
@@ -36,13 +36,11 @@ Extension tools only. There is no MCP setup for pi users to maintain.
 
 | Tool | Description |
 | --- | --- |
-| `codegraph_context` | Broad task context: entry points, related symbols, callers, callees, and key code |
 | `codegraph_search` | Symbol search by name |
 | `codegraph_node` | One symbol's signature, location, source, callers, and callees |
 | `codegraph_files` | Indexed file tree |
 | `codegraph_callers` | Functions or methods that call a symbol |
 | `codegraph_callees` | Functions or methods called by a symbol |
-| `codegraph_trace` | Static call path from one symbol to another |
 | `codegraph_impact` | Impact radius for changing a symbol |
 | `codegraph_explore` | Source for several related symbols grouped by file |
 | `codegraph_status` | Index health and pending sync status |
@@ -126,11 +124,9 @@ Use CodeGraph. Show files under internal/services and important symbols.
 
 ### 3. Prefer the right tool
 
-Use `codegraph_context` for broad "how does this work?" questions.
+Use `codegraph_explore` for broad "how does this work?" or "how does X reach Y?" questions.
 
 Use `codegraph_node` when you already know the symbol name.
-
-Use `codegraph_trace` for "how does X reach Y?" flow questions.
 
 Use `codegraph_search` for declarations and symbols, not arbitrary text or constant values.
 
