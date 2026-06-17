@@ -1,5 +1,12 @@
 # @vndv/pi-codegraph
 
+## 0.1.8
+
+### Patch Changes
+
+- f8a0a7e: Normalize `codegraph_files` `path` filters to root-relative POSIX prefixes and append a deterministic hint when no files match, preventing agents from concluding a directory does not exist. Fixes #40.
+- f8a0a7e: Remove `codegraph_context` and `codegraph_trace` tools, which upstream CodeGraph dropped in v0.9.9+, and update guidance to use `codegraph_explore` instead. Fixes #37.
+
 ## 0.1.7
 
 ### Patch Changes
