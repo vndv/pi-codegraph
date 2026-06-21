@@ -120,7 +120,8 @@ type PendingJsonRpcRequests = Map<number, {
   reject: (error: Error) => void;
 }>;
 
-const MaxDiagnosticLength = 1000;
+export const MaxDiagnosticLength = 1000;
+export const SessionTimeoutMs = 20_000;
 
 export const codegraphToolNames = ToolDefinitions.map((tool) => tool.name);
 
@@ -136,11 +137,49 @@ export async function withCodeGraphMcp<T>(
     stdio: ["pipe", "pipe", "pipe"],
   });
 
-  return runJsonRpcSession(child, cwd, signal, fn);
+  const session = runJsonRpcSession(child, cwd, signal, fn);
+
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const onAbortClearTimer = () => clearTimeout(timer);
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      if (!child.killed) child.kill();
+      reject(new Error(
+        "CodeGraph MCP session timed out after " + SessionTimeoutMs + "ms. " +
+        'Try running "codegraph unlock" in the project directory, then restart pi.'
+      ));
+    }, SessionTimeoutMs);
+    signal?.addEventListener("abort", onAbortClearTimer, { once: true });
+  });
+
+  session.catch(() => {});
+  timeout.catch(() => {});
+  return Promise.race([session, timeout]).finally(() => {
+    clearTimeout(timer);
+    signal?.removeEventListener("abort", onAbortClearTimer);
+  });
+}
+
+export function normalizeWindowsPath(inputPath: string): string {
+  let normalized = inputPath.trim();
+
+  if (process.platform !== "win32") return normalized;
+
+  const wslMatch = normalized.match(/^\/mnt\/([a-zA-Z])\/(.*)$/);
+  if (wslMatch) {
+    normalized = wslMatch[1].toUpperCase() + ":\\" + wslMatch[2].replace(/\//g, "\\");
+  }
+
+  const gitBashMatch = normalized.match(/^\/([a-zA-Z])\/(.*)$/);
+  if (gitBashMatch) {
+    normalized = gitBashMatch[1].toUpperCase() + ":\\" + gitBashMatch[2].replace(/\//g, "\\");
+  }
+
+  return normalized;
 }
 
 export async function resolveProjectCwd(projectPath: string | undefined): Promise<string> {
-  const cwd = projectPath || process.cwd();
+  const cwd = normalizeWindowsPath(projectPath || process.cwd());
 
   if (!path.isAbsolute(cwd)) {
     throw new Error("CodeGraph projectPath must be an absolute path.");
