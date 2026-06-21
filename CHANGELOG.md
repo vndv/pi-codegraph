@@ -1,5 +1,16 @@
 # @vndv/pi-codegraph
 
+## 0.1.9
+
+### Patch Changes
+
+- 1ac87af: Fix MCP session hangs and Windows path normalization
+
+  - Add 20-second session timeout with child process kill to prevent infinite "working..." hangs
+  - Add Git Bash (`/c/...`) and WSL (`/mnt/c/...`) path normalization in `resolveProjectCwd`, gated behind `process.platform === "win32"`
+  - Fix timer leak: clear timeout and remove abort listener in `.finally()` on every code path
+  - Suppress unhandled rejections from both Promise.race losers
+
 ## 0.1.8
 
 ### Patch Changes
