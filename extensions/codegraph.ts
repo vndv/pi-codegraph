@@ -122,25 +122,30 @@ type PendingJsonRpcRequests = Map<number, {
 
 const MaxDiagnosticLength = 1000;
 
+/** Timeout (ms) for the entire codegraph MCP session including initialization. */
+const SessionTimeoutMs = 20_000;
+
 export const codegraphToolNames = ToolDefinitions.map((tool) => tool.name);
 
-export async function withCodeGraphMcp<T>(
-  projectPath: string | undefined,
-  signal: AbortSignal | undefined,
-  fn: (request: JsonRpcRequest) => Promise<T>,
-): Promise<T> {
-  const cwd = await resolveProjectCwd(projectPath);
-  const child = spawn("codegraph", ["serve", "--mcp", "--path", cwd], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
-
-  return runJsonRpcSession(child, cwd, signal, fn);
-}
-
+/**
+ * Resolve a user-supplied CWD or fall back to the current working directory.
+ * Handles Git Bash (/c/...) absolute paths when running in Windows Node.js.
+ */
 export async function resolveProjectCwd(projectPath: string | undefined): Promise<string> {
-  const cwd = projectPath || process.cwd();
+  let cwd = (projectPath || process.cwd()).trim();
+
+  // Git Bash style: /c/Users/... -> C:\Users\...
+  // Only apply this under Windows Node.js; WSL/Linux paths should stay POSIX.
+  const gitBashMatch = process.platform === "win32" ? cwd.match(/^\/([a-zA-Z])\/(.*)$/) : null;
+  if (gitBashMatch) {
+    cwd = gitBashMatch[1].toUpperCase() + ':\\' + gitBashMatch[2].replace(/\//g, '\\');
+  }
+
+  // file:// URL pathname style on Windows: /C:/Users/... -> C:\Users\...
+  const windowsFileUrlPathMatch = process.platform === "win32" ? cwd.match(/^\/([a-zA-Z]):\/(.*)$/) : null;
+  if (windowsFileUrlPathMatch) {
+    cwd = windowsFileUrlPathMatch[1].toUpperCase() + ':\\' + windowsFileUrlPathMatch[2].replace(/\//g, '\\');
+  }
 
   if (!path.isAbsolute(cwd)) {
     throw new Error("CodeGraph projectPath must be an absolute path.");
@@ -158,6 +163,40 @@ export async function resolveProjectCwd(projectPath: string | undefined): Promis
   }
 
   return cwd;
+}
+
+export async function withCodeGraphMcp<T>(
+  projectPath: string | undefined,
+  signal: AbortSignal | undefined,
+  fn: (request: JsonRpcRequest) => Promise<T>,
+): Promise<T> {
+  const cwd = await resolveProjectCwd(projectPath);
+  const child = spawn("codegraph", ["serve", "--mcp", "--no-watch", "--path", cwd], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+
+  const session = runJsonRpcSession(child, cwd, signal, fn);
+
+  // Guard against the MCP session hanging forever -- wrap in a top-level timeout
+  // that kills the child process on expiry.
+  let timeoutTimer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutTimer = setTimeout(() => {
+      if (!child.killed) child.kill();
+      reject(new Error(
+        "CodeGraph MCP session timed out after " + SessionTimeoutMs + "ms. " +
+        'Try running "codegraph unlock" in the project directory, then restart pi.',
+      ));
+    }, SessionTimeoutMs);
+  });
+
+  try {
+    return await Promise.race([session, timeout]);
+  } finally {
+    if (timeoutTimer) clearTimeout(timeoutTimer);
+  }
 }
 
 export function normalizeFilesPath(inputPath?: string, projectCwd?: string): string | undefined {
@@ -289,6 +328,12 @@ function resolveJsonRpcLine(line: string, pending: PendingJsonRpcRequests): void
   else resolve(msg.result);
 }
 
+/** Convert a local path to a file:// URI (handles Windows backslashes correctly). */
+function toFileUriPath(inputPath: string): string {
+  return pathToFileURL(inputPath).href;
+}
+
+
 function rejectPendingJsonRpcOnExit(
   pending: PendingJsonRpcRequests,
   stderr: string,
@@ -329,7 +374,7 @@ async function initializeJsonRpcSession(
   sendRequest: JsonRpcRequest,
   sendNotification: (method: string, params: Record<string, unknown>) => void,
 ): Promise<void> {
-  const rootUri = pathToFileURL(cwd).href;
+  const rootUri = toFileUriPath(cwd);
   await sendRequest("initialize", {
     protocolVersion: "2024-11-05",
     rootUri,
