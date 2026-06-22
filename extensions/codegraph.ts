@@ -125,17 +125,52 @@ export const SessionTimeoutMs = 20_000;
 
 export const codegraphToolNames = ToolDefinitions.map((tool) => tool.name);
 
+const WindowsCodeGraphLaunchScript = [
+  "& {",
+  "param([string]$ProjectPath)",
+  "$ErrorActionPreference = 'Stop';",
+  "$cmd = Get-Command codegraph -CommandType Application -ErrorAction Stop | Select-Object -First 1;",
+  "if (-not $cmd) { throw 'codegraph command not found'; }",
+  "& $cmd.Source serve --mcp --path $ProjectPath;",
+  "exit $LASTEXITCODE;",
+  "}",
+].join(" ");
+
+function spawnCodeGraphServer(cwd: string): ChildProcessWithoutNullStreams {
+  if (process.platform !== "win32") {
+    return spawn("codegraph", ["serve", "--mcp", "--path", cwd], {
+      cwd,
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  }
+
+  // On Windows, Node's direct spawn can miss npm/Scoop command shims that the
+  // shell resolves correctly. Use PowerShell command discovery so global CLI
+  // installs are found without hardcoding .cmd, Scoop, npm, or user paths.
+  return spawn("powershell.exe", [
+    "-NoProfile",
+    "-NonInteractive",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    WindowsCodeGraphLaunchScript,
+    cwd,
+  ], {
+    cwd,
+    env: process.env,
+    stdio: ["pipe", "pipe", "pipe"],
+    windowsHide: true,
+  });
+}
+
 export async function withCodeGraphMcp<T>(
   projectPath: string | undefined,
   signal: AbortSignal | undefined,
   fn: (request: JsonRpcRequest) => Promise<T>,
 ): Promise<T> {
   const cwd = await resolveProjectCwd(projectPath);
-  const child = spawn("codegraph", ["serve", "--mcp", "--path", cwd], {
-    cwd,
-    env: process.env,
-    stdio: ["pipe", "pipe", "pipe"],
-  });
+  const child = spawnCodeGraphServer(cwd);
 
   const session = runJsonRpcSession(child, cwd, signal, fn);
 

@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 vi.mock("node:child_process", () => ({
   spawn: vi.fn(() => createMockProcess()),
@@ -60,12 +61,60 @@ describe("pi-codegraph extension", () => {
     await expect(callCodeGraphTool("codegraph_status", {})).resolves.toBe("called codegraph_status");
   });
 
+  it("uses the direct codegraph executable outside Windows", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+    const { spawn } = await import("node:child_process");
+    const { withCodeGraphMcp } = await import("../extensions/codegraph.js");
+
+    await withCodeGraphMcp(process.cwd(), undefined, async () => "success");
+
+    expect(spawn).toHaveBeenCalledWith("codegraph", ["serve", "--mcp", "--path", process.cwd()], {
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
+  });
+
+  it("uses PowerShell command discovery for the CodeGraph executable on Windows", async () => {
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    const { spawn } = await import("node:child_process");
+    const { withCodeGraphMcp } = await import("../extensions/codegraph.js");
+
+    await withCodeGraphMcp(process.cwd(), undefined, async () => "success");
+
+    const [command, args, options] = vi.mocked(spawn).mock.calls.at(-1)!;
+    const spawnArgs = args as string[];
+    const script = spawnArgs[spawnArgs.indexOf("-Command") + 1];
+
+    expect(command).toBe("powershell.exe");
+    expect(spawnArgs).toEqual(expect.arrayContaining([
+      "-NoProfile",
+      "-NonInteractive",
+      "-ExecutionPolicy",
+      "Bypass",
+      "-Command",
+    ]));
+    expect(script).toContain("Get-Command codegraph");
+    expect(script).toContain("-CommandType Application");
+    expect(script).toContain("Select-Object -First 1");
+    expect(script).not.toContain("codegraph.cmd");
+    expect(script).not.toMatch(/Users[\\/]cq/i);
+    expect(script).not.toMatch(/scoop/i);
+    expect(spawnArgs.at(-1)).toBe(process.cwd());
+    expect(options).toEqual({
+      cwd: process.cwd(),
+      env: process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+      windowsHide: true,
+    });
+  });
+
   it("validates projectPath before starting CodeGraph", async () => {
     const { resolveProjectCwd } = await import("../extensions/codegraph.js");
 
     await expect(resolveProjectCwd("relative/project")).rejects.toThrow("absolute path");
     await expect(resolveProjectCwd("/path/that/does/not/exist")).rejects.toThrow("does not exist");
-    await expect(resolveProjectCwd(new URL(import.meta.url).pathname)).rejects.toThrow("directory");
+    await expect(resolveProjectCwd(fileURLToPath(import.meta.url))).rejects.toThrow("directory");
   });
 
   it("preserves Unix paths on macOS/Linux", async () => {
