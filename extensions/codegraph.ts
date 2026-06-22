@@ -132,7 +132,7 @@ const WindowsCodeGraphLaunchScript = [
   "$cmd = Get-Command codegraph -CommandType Application -ErrorAction Stop | Select-Object -First 1;",
   "if (-not $cmd) { throw 'codegraph command not found'; }",
   "& $cmd.Source serve --mcp --path $ProjectPath;",
-  "if ($LASTEXITCODE -ne $null) { exit $LASTEXITCODE; }",
+  "exit $LASTEXITCODE;",
   "}",
 ].join(" ");
 
