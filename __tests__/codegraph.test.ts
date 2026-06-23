@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, afterEach } from "vitest";
+import { describe, expect, it, vi, afterEach, beforeEach } from "vitest";
 import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import os from "node:os";
@@ -46,6 +46,12 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+// Reset daemon manager between tests to avoid state leaking
+beforeEach(async () => {
+  const mod = await import("../extensions/codegraph.js");
+  mod.getDaemonManager().killAll();
+});
+
 describe("pi-codegraph extension", () => {
   it("exports all CodeGraph tool names", async () => {
     const mod = await import("../extensions/codegraph.js");
@@ -64,7 +70,10 @@ describe("pi-codegraph extension", () => {
   it("uses the direct codegraph executable outside Windows", async () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("linux");
     const { spawn } = await import("node:child_process");
-    const { withCodeGraphMcp } = await import("../extensions/codegraph.js");
+    const { withCodeGraphMcp, getDaemonManager } = await import("../extensions/codegraph.js");
+
+    // Kill any cached daemon so spawn is called fresh
+    getDaemonManager().killAll();
 
     await withCodeGraphMcp(process.cwd(), undefined, async () => "success");
 
@@ -78,7 +87,10 @@ describe("pi-codegraph extension", () => {
   it("uses PowerShell command discovery for the CodeGraph executable on Windows", async () => {
     vi.spyOn(process, "platform", "get").mockReturnValue("win32");
     const { spawn } = await import("node:child_process");
-    const { withCodeGraphMcp } = await import("../extensions/codegraph.js");
+    const { withCodeGraphMcp, getDaemonManager } = await import("../extensions/codegraph.js");
+
+    // Kill any cached daemon so spawn is called fresh
+    getDaemonManager().killAll();
 
     await withCodeGraphMcp(process.cwd(), undefined, async () => "success");
 
@@ -212,13 +224,45 @@ describe("pi-codegraph extension", () => {
     });
   });
 
-  it("clears the timeout timer on successful session completion", async () => {
+  it("reuses daemon across multiple calls", async () => {
     const { spawn } = await import("node:child_process");
-    const { withCodeGraphMcp } = await import("../extensions/codegraph.js");
+    const { callCodeGraphTool, getDaemonManager } = await import("../extensions/codegraph.js");
 
-    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
-    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
+    getDaemonManager().killAll();
+    const spawnCallsBefore = vi.mocked(spawn).mock.calls.length;
 
+    await callCodeGraphTool("codegraph_status", {});
+    await callCodeGraphTool("codegraph_status", {});
+
+    // Daemon should only spawn once, not twice
+    const spawnCallsAfter = vi.mocked(spawn).mock.calls.length;
+    expect(spawnCallsAfter - spawnCallsBefore).toBe(1);
+  });
+
+  it("kills daemon after idle timeout", async () => {
+    vi.useFakeTimers();
+    const { spawn } = await import("node:child_process");
+    const { callCodeGraphTool, getDaemonManager, DaemonIdleTimeoutMs } = await import("../extensions/codegraph.js");
+
+    getDaemonManager().killAll();
+    await callCodeGraphTool("codegraph_status", {});
+
+    const child = vi.mocked(spawn).mock.results[0]?.value;
+    expect(child).toBeDefined();
+
+    // Advance past idle timeout
+    vi.advanceTimersByTime(DaemonIdleTimeoutMs + 1);
+
+    // Daemon should be killed
+    expect(child.killed).toBe(true);
+
+    vi.useRealTimers();
+  });
+
+  it("times out when the MCP request never completes", async () => {
+    const { spawn } = await import("node:child_process");
+
+    // Create a process that responds to initialize but not tools/call
     vi.mocked(spawn).mockImplementationOnce(() => {
       const child = new EventEmitter() as any;
       child.stdin = new PassThrough();
@@ -234,81 +278,29 @@ describe("pi-codegraph extension", () => {
           if (msg.method === "initialize") {
             child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\n");
           }
+          // Don't respond to tools/call - simulate timeout
         }
       });
 
       return child;
     });
 
-    await withCodeGraphMcp(process.cwd(), undefined, async () => "success");
+    const { withCodeGraphMcp, getDaemonManager, SessionTimeoutMs } = await import("../extensions/codegraph.js");
+    getDaemonManager().killAll();
 
-    expect(setTimeoutSpy).toHaveBeenCalled();
-    expect(clearTimeoutSpy).toHaveBeenCalled();
-  });
-
-  it("clears the timeout timer on abort signal", async () => {
-    const { spawn } = await import("node:child_process");
-    const { withCodeGraphMcp } = await import("../extensions/codegraph.js");
-
-    const clearTimeoutSpy = vi.spyOn(globalThis, "clearTimeout");
-
-    vi.mocked(spawn).mockImplementationOnce(() => {
-      const child = new EventEmitter() as any;
-      child.stdin = new PassThrough();
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
-      child.killed = false;
-      child.kill = vi.fn(() => { child.killed = true; });
-
-      child.stdin.on("data", (chunk: Buffer) => {
-        const lines = chunk.toString("utf-8").trim().split("\n").filter(Boolean);
-        for (const line of lines) {
-          const msg = JSON.parse(line);
-          if (msg.method === "initialize") {
-            child.stdout.write(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: {} }) + "\n");
-          }
-        }
-      });
-
-      return child;
+    const promise = withCodeGraphMcp(process.cwd(), undefined, async (request) => {
+      return request("tools/call", { name: "test" });
     });
 
-    const controller = new AbortController();
-    const promise = withCodeGraphMcp(process.cwd(), controller.signal, async (request) => {
-      const toolPromise = request("tools/call", {});
-      controller.abort();
-      return toolPromise;
-    });
-
-    await expect(promise).rejects.toThrow("CodeGraph MCP process closed before responding.");
-    expect(clearTimeoutSpy).toHaveBeenCalled();
-  });
-
-  it("times out when the MCP session never completes", async () => {
-    const { spawn } = await import("node:child_process");
-    const { withCodeGraphMcp, SessionTimeoutMs } = await import("../extensions/codegraph.js");
-
-    const killMock = vi.fn(() => {});
-    vi.mocked(spawn).mockImplementationOnce(() => {
-      const child = new EventEmitter() as any;
-      child.stdin = new PassThrough();
-      child.stdout = new PassThrough();
-      child.stderr = new PassThrough();
-      child.killed = false;
-      child.kill = killMock;
-      return child;
-    });
-
-    const promise = withCodeGraphMcp(process.cwd(), undefined, async () => "done");
-
-    await expect(promise).rejects.toThrow("CodeGraph MCP session timed out after " + SessionTimeoutMs);
-    expect(killMock).toHaveBeenCalled();
-  }, 22000);
+    await expect(promise).rejects.toThrow("CodeGraph MCP request timed out after " + SessionTimeoutMs);
+  }, 25000);
 
   it("normalizes codegraph_files path before forwarding to the MCP server", async () => {
     const { spawn } = await import("node:child_process");
-    const { callCodeGraphTool } = await import("../extensions/codegraph.js");
+    const { callCodeGraphTool, getDaemonManager } = await import("../extensions/codegraph.js");
     let capturedArgs: Record<string, unknown> | undefined;
+
+    getDaemonManager().killAll();
 
     vi.mocked(spawn).mockImplementationOnce(() => {
       const child = new EventEmitter() as any;

@@ -122,6 +122,7 @@ type PendingJsonRpcRequests = Map<number, {
 
 export const MaxDiagnosticLength = 1000;
 export const SessionTimeoutMs = 20_000;
+export const DaemonIdleTimeoutMs = 300_000; // 5 minutes
 
 export const codegraphToolNames = ToolDefinitions.map((tool) => tool.name);
 
@@ -164,36 +165,215 @@ function spawnCodeGraphServer(cwd: string): ChildProcessWithoutNullStreams {
   });
 }
 
-export async function withCodeGraphMcp<T>(
+// ─── Daemon Manager ──────────────────────────────────────────────────────────
+
+interface DaemonEntry {
+  child: ChildProcessWithoutNullStreams;
+  pending: PendingJsonRpcRequests;
+  nextId: number;
+  initialized: boolean;
+  stdoutBuffer: string;
+  stderrBuffer: string;
+  refCount: number;
+  idleTimer: ReturnType<typeof setTimeout> | null;
+  dead: boolean;
+}
+
+class DaemonManager {
+  private daemons = new Map<string, DaemonEntry>();
+  private cleanupRegistered = false;
+
+  private ensureCleanup(): void {
+    if (this.cleanupRegistered) return;
+    this.cleanupRegistered = true;
+
+    const cleanup = () => this.killAll();
+    process.on("exit", cleanup);
+    process.on("SIGINT", () => { cleanup(); process.exit(130); });
+    process.on("SIGTERM", () => { cleanup(); process.exit(143); });
+  }
+
+  async acquire(cwd: string): Promise<DaemonEntry> {
+    this.ensureCleanup();
+
+    let entry = this.daemons.get(cwd);
+
+    // Reuse existing daemon if alive
+    if (entry && !entry.dead) {
+      entry.refCount++;
+      if (entry.idleTimer) {
+        clearTimeout(entry.idleTimer);
+        entry.idleTimer = null;
+      }
+      return entry;
+    }
+
+    // Spawn new daemon
+    const child = spawnCodeGraphServer(cwd);
+    entry = {
+      child,
+      pending: new Map(),
+      nextId: 1,
+      initialized: false,
+      stdoutBuffer: "",
+      stderrBuffer: "",
+      refCount: 1,
+      idleTimer: null,
+      dead: false,
+    };
+
+    this.attachHandlers(entry, cwd);
+    this.daemons.set(cwd, entry);
+
+    // Initialize MCP session
+    await this.initialize(entry, cwd);
+
+    return entry;
+  }
+
+  release(cwd: string): void {
+    const entry = this.daemons.get(cwd);
+    if (!entry || entry.dead) return;
+
+    entry.refCount--;
+    if (entry.refCount <= 0) {
+      entry.refCount = 0;
+      entry.idleTimer = setTimeout(() => this.kill(cwd), DaemonIdleTimeoutMs);
+    }
+  }
+
+  kill(cwd: string): void {
+    const entry = this.daemons.get(cwd);
+    if (!entry) return;
+
+    entry.dead = true;
+    if (entry.idleTimer) {
+      clearTimeout(entry.idleTimer);
+      entry.idleTimer = null;
+    }
+    rejectPendingRequests(entry.pending, new Error("CodeGraph daemon shut down."));
+    if (!entry.child.killed) entry.child.kill();
+    this.daemons.delete(cwd);
+  }
+
+  killAll(): void {
+    for (const cwd of this.daemons.keys()) {
+      this.kill(cwd);
+    }
+  }
+
+  private attachHandlers(entry: DaemonEntry, _cwd: string): void {
+    entry.child.stdout.on("data", (chunk: Buffer) => {
+      entry.stdoutBuffer += chunk.toString("utf-8");
+      let newline;
+      while ((newline = entry.stdoutBuffer.indexOf("\n")) !== -1) {
+        const line = entry.stdoutBuffer.slice(0, newline).trim();
+        entry.stdoutBuffer = entry.stdoutBuffer.slice(newline + 1);
+        if (line) resolveJsonRpcLine(line, entry.pending);
+      }
+    });
+
+    entry.child.stderr.on("data", (chunk: Buffer) => {
+      entry.stderrBuffer += chunk.toString("utf-8");
+    });
+
+    entry.child.on("error", () => {
+      entry.dead = true;
+      rejectPendingRequests(entry.pending, new Error("CodeGraph daemon error."));
+    });
+
+    entry.child.on("exit", (code) => {
+      entry.dead = true;
+      if (entry.pending.size > 0) {
+        const diagnostic = sanitizeDiagnostic(entry.stderrBuffer.trim());
+        const msg = diagnostic || `CodeGraph daemon exited with code ${code}`;
+        rejectPendingRequests(entry.pending, new Error(msg));
+      }
+      this.daemons.delete(_cwd);
+    });
+  }
+
+  private async initialize(entry: DaemonEntry, cwd: string): Promise<void> {
+    const rootUri = pathToFileURL(cwd).href;
+    const sendRequest = this.createSender(entry);
+
+    await sendRequest("initialize", {
+      protocolVersion: "2024-11-05",
+      rootUri,
+      workspaceFolders: [{ uri: rootUri, name: cwd.split(/[\\/]/).pop() || cwd }],
+      capabilities: {},
+      clientInfo: { name: "pi-codegraph", version: "0.1.0" },
+    });
+
+    // Send initialized notification
+    entry.child.stdin.write(JSON.stringify({
+      jsonrpc: "2.0",
+      method: "initialized",
+      params: {},
+    }) + "\n");
+
+    entry.initialized = true;
+  }
+
+  createSender(entry: DaemonEntry): JsonRpcRequest {
+    return (method, params) => {
+      const id = entry.nextId++;
+      const payload = { jsonrpc: "2.0", id, method, params };
+      const promise = new Promise<any>((resolve, reject) => {
+        entry.pending.set(id, { resolve, reject });
+      });
+      entry.child.stdin.write(`${JSON.stringify(payload)}\n`);
+      return promise;
+    };
+  }
+}
+
+// Singleton manager
+const daemonManager = new DaemonManager();
+
+// Exported for testing
+export function getDaemonManager(): DaemonManager {
+  return daemonManager;
+}
+
+// ─── Session (reuses daemon) ─────────────────────────────────────────────────
+
+async function withDaemonSession<T>(
   projectPath: string | undefined,
   signal: AbortSignal | undefined,
   fn: (request: JsonRpcRequest) => Promise<T>,
 ): Promise<T> {
   const cwd = await resolveProjectCwd(projectPath);
-  const child = spawnCodeGraphServer(cwd);
-
-  const session = runJsonRpcSession(child, cwd, signal, fn);
+  const entry = await daemonManager.acquire(cwd);
 
   let timer: ReturnType<typeof setTimeout> | undefined;
   const onAbortClearTimer = () => clearTimeout(timer);
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => {
-      if (!child.killed) child.kill();
       reject(new Error(
-        "CodeGraph MCP session timed out after " + SessionTimeoutMs + "ms. " +
+        "CodeGraph MCP request timed out after " + SessionTimeoutMs + "ms. " +
         'Try running "codegraph unlock" in the project directory, then restart pi.'
       ));
     }, SessionTimeoutMs);
     signal?.addEventListener("abort", onAbortClearTimer, { once: true });
   });
 
-  session.catch(() => {});
-  timeout.catch(() => {});
-  return Promise.race([session, timeout]).finally(() => {
+  const sendRequest = daemonManager.createSender(entry);
+  const task = fn(sendRequest);
+
+  try {
+    return await Promise.race([task, timeout]);
+  } finally {
     clearTimeout(timer);
     signal?.removeEventListener("abort", onAbortClearTimer);
-  });
+    daemonManager.release(cwd);
+  }
 }
+
+// Keep backward-compatible export
+export const withCodeGraphMcp = withDaemonSession;
+
+// ─── Utilities ───────────────────────────────────────────────────────────────
 
 export function normalizeWindowsPath(inputPath: string): string {
   let normalized = inputPath.trim();
@@ -274,80 +454,6 @@ export function sanitizeDiagnostic(value: string): string {
     : redacted;
 }
 
-async function runJsonRpcSession<T>(
-  child: ChildProcessWithoutNullStreams,
-  cwd: string,
-  signal: AbortSignal | undefined,
-  fn: (request: JsonRpcRequest) => Promise<T>,
-): Promise<T> {
-  const pending: PendingJsonRpcRequests = new Map();
-  const stderr = { value: "" };
-  const cleanup = () => cleanupJsonRpcChild(child, pending);
-  const onAbort = () => cleanup();
-
-  signal?.addEventListener("abort", onAbort, { once: true });
-  attachJsonRpcHandlers(child, pending, stderr);
-
-  try {
-    const sendRequest = createJsonRpcRequestSender(child, pending);
-    await initializeJsonRpcSession(cwd, sendRequest, sendJsonRpcNotification.bind(undefined, child));
-    return await fn(sendRequest);
-  } finally {
-    signal?.removeEventListener("abort", onAbort);
-    cleanup();
-  }
-}
-
-function cleanupJsonRpcChild(
-  child: ChildProcessWithoutNullStreams,
-  pending: PendingJsonRpcRequests,
-): void {
-  rejectPendingJsonRpcRequests(
-    pending,
-    new Error("CodeGraph MCP process closed before responding."),
-  );
-  if (!child.killed) child.kill();
-}
-
-function rejectPendingJsonRpcRequests(
-  pending: PendingJsonRpcRequests,
-  error: Error,
-): void {
-  for (const entry of pending.values()) entry.reject(error);
-  pending.clear();
-}
-
-function attachJsonRpcHandlers(
-  child: ChildProcessWithoutNullStreams,
-  pending: PendingJsonRpcRequests,
-  stderr: { value: string },
-): void {
-  const stdout = { value: "" };
-
-  child.stdout.on("data", (chunk) => {
-    handleJsonRpcStdout(chunk, stdout, pending);
-  });
-  child.stderr.on("data", (chunk) => {
-    stderr.value += chunk.toString("utf-8");
-  });
-  child.on("error", (err) => rejectPendingJsonRpcRequests(pending, err));
-  child.on("exit", (code) => rejectPendingJsonRpcOnExit(pending, stderr.value, code));
-}
-
-function handleJsonRpcStdout(
-  chunk: Buffer,
-  stdout: { value: string },
-  pending: PendingJsonRpcRequests,
-): void {
-  stdout.value += chunk.toString("utf-8");
-  let newline;
-  while ((newline = stdout.value.indexOf("\n")) !== -1) {
-    const line = stdout.value.slice(0, newline).trim();
-    stdout.value = stdout.value.slice(newline + 1);
-    if (line) resolveJsonRpcLine(line, pending);
-  }
-}
-
 function resolveJsonRpcLine(line: string, pending: PendingJsonRpcRequests): void {
   let msg: any;
   try {
@@ -363,55 +469,9 @@ function resolveJsonRpcLine(line: string, pending: PendingJsonRpcRequests): void
   else resolve(msg.result);
 }
 
-function rejectPendingJsonRpcOnExit(
-  pending: PendingJsonRpcRequests,
-  stderr: string,
-  code: number | null,
-): void {
-  if (pending.size === 0) return;
-  const diagnostic = sanitizeDiagnostic(stderr.trim());
-  const msg = diagnostic || `CodeGraph MCP process exited with code ${code}`;
-  rejectPendingJsonRpcRequests(pending, new Error(msg));
-}
-
-function createJsonRpcRequestSender(
-  child: ChildProcessWithoutNullStreams,
-  pending: PendingJsonRpcRequests,
-): JsonRpcRequest {
-  let nextId = 1;
-  return (method, params) => {
-    const id = nextId++;
-    const payload = { jsonrpc: "2.0", id, method, params };
-    const promise = new Promise<any>((resolve, reject) => {
-      pending.set(id, { resolve, reject });
-    });
-    child.stdin.write(`${JSON.stringify(payload)}\n`);
-    return promise;
-  };
-}
-
-function sendJsonRpcNotification(
-  child: ChildProcessWithoutNullStreams,
-  method: string,
-  params: Record<string, unknown>,
-): void {
-  child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method, params })}\n`);
-}
-
-async function initializeJsonRpcSession(
-  cwd: string,
-  sendRequest: JsonRpcRequest,
-  sendNotification: (method: string, params: Record<string, unknown>) => void,
-): Promise<void> {
-  const rootUri = pathToFileURL(cwd).href;
-  await sendRequest("initialize", {
-    protocolVersion: "2024-11-05",
-    rootUri,
-    workspaceFolders: [{ uri: rootUri, name: cwd.split(/[\\/]/).pop() || cwd }],
-    capabilities: {},
-    clientInfo: { name: "pi-codegraph", version: "0.1.0" },
-  });
-  sendNotification("initialized", {});
+function rejectPendingRequests(pending: PendingJsonRpcRequests, error: Error): void {
+  for (const entry of pending.values()) entry.reject(error);
+  pending.clear();
 }
 
 async function prepareToolArguments(
