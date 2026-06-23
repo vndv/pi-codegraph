@@ -121,7 +121,14 @@ type PendingJsonRpcRequests = Map<number, {
 }>;
 
 export const MaxDiagnosticLength = 1000;
-export const SessionTimeoutMs = 20_000;
+export const SessionTimeoutMs = (() => {
+  const envValue = process.env.CODEGRAPH_TIMEOUT_MS;
+  if (envValue !== undefined) {
+    const parsed = parseInt(envValue, 10);
+    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+  }
+  return 60_000;
+})();
 
 export const codegraphToolNames = ToolDefinitions.map((tool) => tool.name);
 

@@ -286,6 +286,9 @@ describe("pi-codegraph extension", () => {
 
   it("times out when the MCP session never completes", async () => {
     const { spawn } = await import("node:child_process");
+    const originalEnv = process.env.CODEGRAPH_TIMEOUT_MS;
+    process.env.CODEGRAPH_TIMEOUT_MS = "20000";
+    vi.resetModules();
     const { withCodeGraphMcp, SessionTimeoutMs } = await import("../extensions/codegraph.js");
 
     const killMock = vi.fn(() => {});
@@ -303,6 +306,8 @@ describe("pi-codegraph extension", () => {
 
     await expect(promise).rejects.toThrow("CodeGraph MCP session timed out after " + SessionTimeoutMs);
     expect(killMock).toHaveBeenCalled();
+    if (originalEnv === undefined) delete process.env.CODEGRAPH_TIMEOUT_MS;
+    else process.env.CODEGRAPH_TIMEOUT_MS = originalEnv;
   }, 22000);
 
   it("normalizes codegraph_files path before forwarding to the MCP server", async () => {
