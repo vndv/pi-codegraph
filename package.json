@@ -60,7 +60,7 @@
   "devDependencies": {
     "@changesets/cli": "^2.31.0",
     "@colbymchenry/codegraph": "^1.0.1",
-    "@earendil-works/pi-coding-agent": "^0.80.3",
+    "@earendil-works/pi-coding-agent": "^0.82.1",
     "@types/node": "^26.0.0",
     "typescript": "^7.0.2",
     "vitest": "^4.1.7"
