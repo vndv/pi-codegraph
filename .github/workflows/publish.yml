@@ -57,15 +57,15 @@ jobs:
         id: changesets
         uses: changesets/action@22ccf9aa43179fe9e27dc62e575971d28cce197c
         with:
-          version: npm run version-packages
-          publish: npm run publish-packages
-          commit: "chore: version packages"
-          title: "chore: version packages"
+          version-script: npm run version-packages
+          publish-script: npm run publish-packages
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Trigger CI for version PR
-        if: steps.changesets.outputs.hasChangesets == 'true'
+        if: steps.changesets.outputs.has-changesets == 'true'
         run: gh workflow run ci.yml --ref changeset-release/main
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
