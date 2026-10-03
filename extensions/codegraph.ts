@@ -487,8 +487,14 @@ export default function codegraphExtension(pi: ExtensionAPI): void {
         `${tool.name} is available for structural code questions backed by the local CodeGraph index.`,
       ],
       parameters: tool.parameters,
-      async execute(_toolCallId, params: Static<typeof tool.parameters>, signal) {
-        const text = await callCodeGraphTool(tool.name, (params || {}) as ToolParams, signal);
+      async execute(_toolCallId, params: Static<typeof tool.parameters>, signal, _onUpdate, ctx) {
+        // Default to the session cwd: embedded hosts (e.g. pi-web) run with a process cwd
+        // that differs from the session's working directory.
+        const toolParams: ToolParams = { ...((params || {}) as ToolParams) };
+        if ((typeof toolParams.projectPath !== "string" || !toolParams.projectPath.trim()) && ctx?.cwd) {
+          toolParams.projectPath = ctx.cwd;
+        }
+        const text = await callCodeGraphTool(tool.name, toolParams, signal);
         return {
           content: [{ type: "text" as const, text }],
           details: {},

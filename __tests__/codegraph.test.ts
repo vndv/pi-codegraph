@@ -109,6 +109,66 @@ describe("pi-codegraph extension", () => {
     });
   });
 
+  describe("registered tool execute()", () => {
+    async function getRegisteredTool(name: string) {
+      const { default: codegraphExtension } = await import("../extensions/codegraph.js");
+      const tools: any[] = [];
+      codegraphExtension({ on: vi.fn(), registerTool: (t: any) => tools.push(t) } as any);
+      return tools.find((t) => t.name === name)!;
+    }
+
+    it("defaults projectPath to the session cwd from the extension context", async () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      const { spawn } = await import("node:child_process");
+      vi.mocked(spawn).mockClear();
+      const sessionCwd = os.tmpdir();
+      const tool = await getRegisteredTool("codegraph_status");
+
+      const result = await tool.execute("call-1", {}, undefined, undefined, { cwd: sessionCwd });
+
+      expect(result.content[0].text).toBe("called codegraph_status");
+      const [, args] = vi.mocked(spawn).mock.calls.at(-1)!;
+      expect(args).toEqual(["serve", "--mcp", "--path", sessionCwd]);
+    });
+
+    it("treats an empty projectPath as missing and uses the session cwd", async () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      const { spawn } = await import("node:child_process");
+      vi.mocked(spawn).mockClear();
+      const sessionCwd = os.tmpdir();
+      const tool = await getRegisteredTool("codegraph_status");
+
+      await tool.execute("call-3", { projectPath: "" }, undefined, undefined, { cwd: sessionCwd });
+
+      const [, args] = vi.mocked(spawn).mock.calls.at(-1)!;
+      expect(args).toEqual(["serve", "--mcp", "--path", sessionCwd]);
+    });
+
+    it("falls back to process.cwd() when no extension context is passed", async () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      const { spawn } = await import("node:child_process");
+      vi.mocked(spawn).mockClear();
+      const tool = await getRegisteredTool("codegraph_status");
+
+      await tool.execute("call-4", {}, undefined, undefined, undefined);
+
+      const [, args] = vi.mocked(spawn).mock.calls.at(-1)!;
+      expect(args).toEqual(["serve", "--mcp", "--path", process.cwd()]);
+    });
+
+    it("keeps an explicit projectPath over the session cwd", async () => {
+      vi.spyOn(process, "platform", "get").mockReturnValue("linux");
+      const { spawn } = await import("node:child_process");
+      vi.mocked(spawn).mockClear();
+      const tool = await getRegisteredTool("codegraph_status");
+
+      await tool.execute("call-2", { projectPath: process.cwd() }, undefined, undefined, { cwd: os.tmpdir() });
+
+      const [, args] = vi.mocked(spawn).mock.calls.at(-1)!;
+      expect(args).toEqual(["serve", "--mcp", "--path", process.cwd()]);
+    });
+  });
+
   it("validates projectPath before starting CodeGraph", async () => {
     const { resolveProjectCwd } = await import("../extensions/codegraph.js");
 
