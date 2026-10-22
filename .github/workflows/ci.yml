@@ -26,7 +26,8 @@ jobs:
           python-version: "3.11"
       - run: npm ci --ignore-scripts
       - run: npm run ci
-      - run: pip install skylos
+      # Newer Skylos releases replace the grade output required by the badge script.
+      - run: pip install skylos==4.22.1
       - run: skylos . -a --format json --output skylos-results.json
       - run: skylos . --gate
       - run: node scripts/update-skylos-badge.mjs skylos-results.json
@@ -45,7 +46,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
         with:
           python-version: "3.11"
-      - run: pip install skylos
+      # Keep aligned with the grade-compatible version in the test job.
+      - run: pip install skylos==4.22.1
       - run: skylos . -a --format json --output skylos-results.json
       - run: node scripts/update-skylos-badge.mjs skylos-results.json
       - name: Create or update PR for Skylos badge
